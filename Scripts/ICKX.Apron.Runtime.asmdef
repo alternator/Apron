@@ -1,0 +1,14 @@
+{
+    "name": "ICKX.SceneSet.Runtime",
+    "references": [
+        "ICKX.Common.Runtime"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": []
+}

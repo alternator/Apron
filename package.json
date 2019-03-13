@@ -1,0 +1,10 @@
+{
+	"name": "jp.ickx.apron",
+	"version": "0.0.1",
+	"unity": "2018.3",
+	"description": "ICKX Unity Scene Management Library",
+	"dependencies": {
+		"com.unity.collections": ">0.0.9",
+		"jp.ickx.common": ">0.0.1"
+	}
+}

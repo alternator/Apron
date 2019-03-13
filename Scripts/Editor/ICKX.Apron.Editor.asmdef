@@ -1,0 +1,14 @@
+{
+    "name": "ICKX.Apron.Editor",
+    "references": [
+        "ICKX.SceneSet.Runtime"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": []
+}
