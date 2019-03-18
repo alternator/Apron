@@ -1,7 +1,8 @@
 {
     "name": "ICKX.Apron.Editor",
     "references": [
-        "ICKX.SceneSet.Runtime"
+        "ICKX.SceneSet.Runtime",
+        "ICKX.Common.Runtime"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [],

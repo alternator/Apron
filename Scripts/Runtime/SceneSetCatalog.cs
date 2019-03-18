@@ -15,17 +15,17 @@ namespace ICKX.Apron {
 		public const string DefaultCatalogName = "MainSceneSetCatalog";
 
 		[SerializeField]
-		private List<LandscapeSceneSet> landscapeSceneSetList;
+		private List<SceneInfo> sceneInfoList;
 		[SerializeField]
 		private List<SceneSet> sceneSetList;
 
-		public Dictionary<string, LandscapeSceneSet> landscapeSceneSetTable = null;
+		public Dictionary<string, SceneInfo> sceneInfoTable = null;
 
 		public Dictionary<string, SceneSet> sceneSetTable = null;
 
 		public void OnAfterDeserialize () {
-			if (landscapeSceneSetList != null) {
-				landscapeSceneSetTable = landscapeSceneSetList.ToDictionary (e => e.sceneSetName, e => e);
+			if (sceneInfoList != null) {
+				sceneInfoTable = sceneInfoList.ToDictionary (e => e.sceneName, e => e);
 			}
 			if (sceneSetList != null) {
 				sceneSetTable = sceneSetList.ToDictionary (e => e.sceneSetName, e => e);
@@ -33,8 +33,8 @@ namespace ICKX.Apron {
 		}
 
 		public void OnBeforeSerialize () {
-			if (landscapeSceneSetTable != null) {
-				landscapeSceneSetList = landscapeSceneSetTable.Values.ToList ();
+			if (sceneInfoTable != null) {
+				sceneInfoList = sceneInfoTable.Values.ToList ();
 			}
 			if (sceneSetTable != null) {
 				sceneSetList = sceneSetTable.Values.ToList ();
@@ -86,64 +86,40 @@ namespace ICKX.Apron {
 
 			if(guids.Length == 0) {
 				return null;
-			}else if(guids.Length > 2){
-				Debug.LogWarning (sceneName + "は同名のシーンがあります");
 			}
-			return AssetDatabase.GUIDToAssetPath (guids[0]);
+
+			foreach(var guid in guids) {
+				string path = AssetDatabase.GUIDToAssetPath (guid);
+				if(System.IO.Path.GetFileName(path) == $"{sceneName}.unity") {
+					return path;
+				}
+			}
+			return null;
 		}
 
 		public void UpdateBuildSettings () {
-			List<string> list = new List<string> ();
+			var list = EditorBuildSettings.scenes.ToList();
 
-			foreach (var sceneSet in sceneSetList) {
-				if (!sceneSet.isBuildSceneSet) continue;
+			foreach (var sceneInfo in sceneInfoList) {
+				if (!sceneInfo.isBuild) continue;
+				string path = FindSceneAssetPath (sceneInfo.sceneName);
 
-				string path = FindSceneAssetPath (sceneSet.sceneSetName);
 				if (!string.IsNullOrEmpty (path)) {
-					list.Add (path);
-				}
+					var setting = list.FirstOrDefault (b=>b.path == path);
 
-				if (!string.IsNullOrEmpty(sceneSet.landscapeSceneSetName)) {
-					var landSceneSet = landscapeSceneSetTable[sceneSet.landscapeSceneSetName];
-
-
-					path = FindSceneAssetPath (landSceneSet.sceneSetName);
-					if (!string.IsNullOrEmpty (path)) {
-						list.Add (path);
-					}
-
-					foreach (var subSceneName in landSceneSet.subStaticSceneNames) {
-						path = FindSceneAssetPath (subSceneName);
-						if (!string.IsNullOrEmpty (path)) {
-							list.Add (path);
-						}
-					}
-
-					foreach (var subSceneName in landSceneSet.subDynamicSceneNames) {
-						path = FindSceneAssetPath (subSceneName);
-						if (!string.IsNullOrEmpty (path)) {
-							list.Add (path);
-						}
-					}
-
-					path = FindSceneAssetPath (landSceneSet.sceneSetName);
-					if (!string.IsNullOrEmpty (path)) {
-						list.Add (path);
-					}
-				}
-
-				foreach (var subSceneName in sceneSet.sceneNames) {
-					path = FindSceneAssetPath (subSceneName);
-					if (!string.IsNullOrEmpty (path)) {
-						list.Add (path);
+					if (setting != null) {
+						setting.enabled = true;
+					} else {
+						list.Add (new EditorBuildSettingsScene (path, true));
 					}
 				}
 			}
 
 			EditorBuildSettings.scenes = list
 				.Distinct()
-				.Select(s=>new EditorBuildSettingsScene( s, true))
 				.ToArray ();
+
+			Debug.Log ("UpdateBuildSettings Complete");
 		}
 #endif
 	}

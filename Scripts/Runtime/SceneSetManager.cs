@@ -8,7 +8,9 @@ namespace ICKX.Apron {
 
 	public enum LoadSceneSetMode {
 		Clean,
+		CleanDynamic,
 		Diff,
+		Add,
 	}
 
 	public static class SceneSetManager {
@@ -28,6 +30,16 @@ namespace ICKX.Apron {
 			m_catalogs.Add (catalog);
 		}
 
+		public static SceneInfo GetSceneInfoByName (string name) {
+			SceneInfo sceneInfo = null;
+			foreach (var catalog in m_catalogs) {;
+				if (catalog.sceneInfoTable.TryGetValue (name, out sceneInfo)) {
+					return sceneInfo;
+				}
+			}
+			return null;
+		}
+
 		public static SceneSet GetSceneSetByName (string name) {
 			SceneSet sceneSet = null;
 			foreach (var catalog in m_catalogs) {
@@ -38,55 +50,6 @@ namespace ICKX.Apron {
 			return null;
 		}
 
-		public static LandscapeSceneSet GetLandscapeSceneSetByName (string name) {
-			LandscapeSceneSet sceneSet = null;
-			foreach (var catalog in m_catalogs) {
-				if (catalog.landscapeSceneSetTable.TryGetValue (name, out sceneSet)) {
-					return sceneSet;
-				}
-			}
-			return null;
-		}
-
-		public static void LoadSceneSet (string sceneSetName, LoadSceneSetMode mode) {
-			int i = 0;
-			var sceneSet = GetSceneSetByName (sceneSetName);
-
-			//読み込み済みシーンから次のシーンに必要ないシーンを削除
-			if (mode == LoadSceneSetMode.Diff) {
-				for (i = 0; i < SceneManager.sceneCount; i++) {
-					var scene = SceneManager.GetSceneAt (i);
-					if (!ContainSceneName (sceneSet, scene.name)) {
-						SceneManager.UnloadSceneAsync (scene);
-					}
-				}
-			}
-
-			i = 0;
-			foreach (string sceneName in GetSceneNameEnumerable (sceneSet)) {
-
-				if (mode == LoadSceneSetMode.Clean) {
-					if (i == 0) {
-						SceneManager.LoadScene (sceneName, LoadSceneMode.Single);
-					} else {
-						SceneManager.LoadScene (sceneName, LoadSceneMode.Additive);
-					}
-				} else if (mode == LoadSceneSetMode.Diff) {
-					//読み込み済みシーン以外をロード.
-					if (!SceneManager.GetSceneByName (sceneName).isLoaded) {
-						SceneManager.LoadScene (sceneName, LoadSceneMode.Additive);
-					}
-
-					if (i == 0) {
-						if (SceneManager.GetActiveScene ().name != sceneName) {
-							SceneManager.SetActiveScene (SceneManager.GetSceneByName (sceneName));
-						}
-					}
-				}
-				i++;
-			}
-		}
-
 		public static LoadSceneSetAsyncOperation LoadSceneSetAsync (string sceneSetName, LoadSceneSetMode mode) {
 			int i = 0;
 			var sceneSet = GetSceneSetByName (sceneSetName);
@@ -95,44 +58,87 @@ namespace ICKX.Apron {
 			op.loadSceneSetMode = mode;
 
 			//読み込み済みシーンから次のシーンに必要ないシーンを削除
-			if (mode == LoadSceneSetMode.Diff) {
-				for (i = 0; i < SceneManager.sceneCount; i++) {
-					var scene = SceneManager.GetSceneAt (i);
-					if (!ContainSceneName (sceneSet, scene.name)) {
+			for (i = 0; i < SceneManager.sceneCount; i++) {
+				var scene = SceneManager.GetSceneAt (i);
+				var info = GetSceneInfoByName (scene.name);
+
+				if (info == null) {
+					info = new SceneInfo () { sceneName = scene.name, isBuild = true, sceneType = SceneInfo.SceneType.Dynamic };
+				}
+				if (info.sceneType == SceneInfo.SceneType.Permanent) continue;
+
+				switch (mode) {
+					case LoadSceneSetMode.Clean:
 						op.unloadRequestScenes.Add (scene.name);
-					}
-				}
-			}
-
-			i = 0;
-
-			foreach (string sceneName in GetSceneNameEnumerable (sceneSet)) {
-
-				if (mode == LoadSceneSetMode.Clean) {
-					if (i == 0) {
-						op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Single);
-					} else {
-						op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
-					}
-				} else if (mode == LoadSceneSetMode.Diff) {
-					//読み込み済みシーン以外をロード.
-					if (!SceneManager.GetSceneByName (sceneName).isLoaded) {
-						op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
-					}
-					if (i == 0) {
-						if (SceneManager.GetActiveScene ().name != sceneName) {
-							op.activeSceneName = sceneName;
+						break;
+					case LoadSceneSetMode.CleanDynamic:
+						if (info.sceneType == SceneInfo.SceneType.Static) {
+							if (!ContainSceneName (sceneSet, scene.name)) {
+								op.unloadRequestScenes.Add (scene.name);
+							}
+						} else if (info.sceneType == SceneInfo.SceneType.Dynamic) {
+								op.unloadRequestScenes.Add (scene.name);
 						}
-					}
+						break;
+					case LoadSceneSetMode.Diff:
+						if (!ContainSceneName (sceneSet, scene.name)) {
+							op.unloadRequestScenes.Add (scene.name);
+						}
+						break;
+					case LoadSceneSetMode.Add:
+						break;
 				}
-				i++;
 			}
+
+			foreach (string sceneName in sceneSet.sceneNames) {
+				var info = GetSceneInfoByName (sceneName);
+
+				switch (info.sceneType) {
+					case SceneInfo.SceneType.Permanent:
+						if (!SceneManager.GetSceneByName (sceneName).isLoaded) {
+							op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
+						}
+						break;
+					case SceneInfo.SceneType.Static:
+						if (SceneManager.GetSceneByName (sceneName).isLoaded) {
+							if (mode == LoadSceneSetMode.Clean) {
+								op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
+							}
+						}else {
+							op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
+						}
+						break;
+					case SceneInfo.SceneType.Dynamic:
+						if (SceneManager.GetSceneByName (sceneName).isLoaded) {
+							if (mode == LoadSceneSetMode.Clean || mode == LoadSceneSetMode.CleanDynamic) {
+								op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
+							}
+						} else {
+							op.asyncOperations[sceneName] = SceneManager.LoadSceneAsync (sceneName, LoadSceneMode.Additive);
+						}
+						break;
+				}
+			}
+			op.activeSceneName = sceneSet.sceneNames[0];
 			return op;
 		}
 
-		public static bool ContainSceneName (SceneSet sceneSet, string sceneName) {
-			foreach (string sceneNameInSceneSet in GetSceneNameEnumerable (sceneSet)) {
+		public static UnloadSceneSetAsyncOperation UnloadSceneDynamicAsync () {
+			var unloadOp = new UnloadSceneSetAsyncOperation ();
+			for (int i = 0; i < SceneManager.sceneCount; i++) {
+				var scene = SceneManager.GetSceneAt (i);
+				var info = GetSceneInfoByName (scene.name);
 
+				if(info == null || info.sceneType == SceneInfo.SceneType.Dynamic) {
+					var op = SceneManager.UnloadSceneAsync (scene.name);
+					unloadOp.asyncOperations[scene.name] = op;
+				}
+			}
+			return unloadOp;
+		}
+
+		public static bool ContainSceneName (SceneSet sceneSet, string sceneName) {
+			foreach (string sceneNameInSceneSet in sceneSet.sceneNames) {
 				if (sceneName == sceneNameInSceneSet) {
 					return true;
 				}
@@ -141,34 +147,8 @@ namespace ICKX.Apron {
 		}
 
 		public static string GetActiveSceneName (SceneSet sceneSet) {
-			if (!string.IsNullOrEmpty (sceneSet.landscapeSceneSetName)) {
-				var landscape = GetLandscapeSceneSetByName (sceneSet.landscapeSceneSetName);
-				return landscape.sceneSetName;
-			}
-			return sceneSet.sceneSetName;
-		}
-
-		public static IEnumerable<string> GetSceneNameEnumerable (SceneSet sceneSet) {
-			if (!string.IsNullOrEmpty (sceneSet.landscapeSceneSetName)) {
-				var landscape = GetLandscapeSceneSetByName (sceneSet.landscapeSceneSetName);
-
-				yield return landscape.sceneSetName;
-				foreach (var subSceneName in landscape.subStaticSceneNames) {
-					if (string.IsNullOrEmpty (subSceneName)) continue;
-					yield return subSceneName;
-				}
-				foreach (var subSceneName in landscape.subDynamicSceneNames) {
-					if (string.IsNullOrEmpty (subSceneName)) continue;
-					yield return subSceneName;
-				}
-			}
-
-			foreach (var subSceneName in sceneSet.sceneNames) {
-				if (string.IsNullOrEmpty (subSceneName)) continue;
-				yield return subSceneName;
-			}
-
-//			yield return sceneSet.sceneSetName;
+			if (sceneSet == null) return null;
+			return (sceneSet.sceneNames.Length == 0) ? null : sceneSet.sceneNames[0];
 		}
 	}
 
@@ -225,6 +205,7 @@ namespace ICKX.Apron {
 			get { return m_activeSceneName; }
 			set {
 				m_activeSceneName = value;
+				if (!asyncOperations.ContainsKey (activeSceneName)) return;
 				asyncOperations[m_activeSceneName].completed += OnLoadCompletedActiveScene;
 			}
 		}
@@ -306,7 +287,16 @@ namespace ICKX.Apron {
 		}
 
 		private void OnLoadCompletedActiveScene (AsyncOperation op) {
-			SceneManager.SetActiveScene (SceneManager.GetSceneByName (activeSceneName));
+			CoroutineManager.Start (SetActiveSceneDelay());
+		}
+
+		IEnumerator SetActiveSceneDelay () {
+			Scene scene;
+			do {
+				yield return null;
+				scene = SceneManager.GetSceneByName (activeSceneName);
+			} while (!scene.isLoaded);
+			SceneManager.SetActiveScene (scene);
 		}
 	}
 }

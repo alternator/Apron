@@ -15,70 +15,45 @@ namespace ICKX.Apron {
 	[CustomEditor (typeof (SceneAsset))]
 	public class SceneAssetInspector : Editor {
 
-		public enum SceneSetMode {
-			None = 0,
-			RootScene,
-			Landscape,
-		}
-
 		SceneAsset sceneAsset;
-		SceneSetMode sceneSetMode = SceneSetMode.None;
+		bool isSceneSet;
 		string catalogName;
-		string[] modeToolBarNames;
 
-		bool isRootScene { get { return (sceneSetMode != SceneSetMode.None); } }
-		bool isLandscapeSceneSet { get { return (sceneSetMode == SceneSetMode.Landscape); } }
-		
+		SerializedProperty sceneInfoProperty = null;
 		SerializedProperty sceneSetProperty = null;
 
 		SceneSetCatalog catalog = null;
 		SerializedObject sobjCatalog = null;
 
 		ReorderableList sceneNameList = null;
-		ReorderableList subStaticSceneNameList = null;
-		ReorderableList subDynamicSceneNameList = null;
+
+		int currentCatalogIndex = 0;
+		string[] catalogPaths;
+		string[] catalogNames;
 
 		private void OnEnable () {
 			sceneAsset = target as SceneAsset;
-			modeToolBarNames = System.Enum.GetNames (typeof (SceneSetMode));
 
 			OnUpdateSceneAsset ();
 		}
 
-		private void OnChangeSceneSetProperty () {
-			if (sobjCatalog == null || sceneSetProperty == null) return;
+		private void OnChangeSceneSetProperty (SerializedObject sobj) {
+			if (sobj == null || sceneSetProperty == null) return;
 			var prop = sceneSetProperty.FindPropertyRelative ("sceneNames");
-			sceneNameList = new ReorderableList (sobjCatalog, prop);
+			sceneNameList = new ReorderableList (sobj, prop);
+
+			//sceneNameList.onChangedCallback = (list) => {
+			//	sobjCatalog.ApplyModifiedProperties ();
+			//};
+			sceneNameList.drawHeaderCallback = (rect) => {
+				EditorGUI.LabelField (rect, "Scene Names (Index=0 is Active)");
+			};
 
 			sceneNameList.drawElementCallback = (rect, index, isActive, isFocused) => {
 				var element = prop.GetArrayElementAtIndex (index);
 				rect.height -= 4;
 				rect.y += 2;
-				EditorGUI.PropertyField (rect, element, new GUIContent("Scene " + index));
-			};
-		}
-
-		private void OnChangeLandscapeSceneSetProperty () {
-			if (sobjCatalog == null || sceneSetProperty == null) return;
-
-			var prop = sceneSetProperty.FindPropertyRelative ("subStaticSceneNames");
-			subStaticSceneNameList = new ReorderableList (sobjCatalog, prop);
-
-			subStaticSceneNameList.drawElementCallback = (rect, index, isActive, isFocused) => {
-				var element = prop.GetArrayElementAtIndex (index);
-				rect.height -= 4;
-				rect.y += 2;
-				EditorGUI.PropertyField (rect, element, new GUIContent ("SubStaticScene " + index));
-			};
-
-			prop = sceneSetProperty.FindPropertyRelative ("subDynamicSceneNames");
-			subDynamicSceneNameList = new ReorderableList (sobjCatalog, prop);
-
-			subDynamicSceneNameList.drawElementCallback = (rect, index, isActive, isFocused) => {
-				var element = prop.GetArrayElementAtIndex (index);
-				rect.height -= 4;
-				rect.y += 2;
-				EditorGUI.PropertyField (rect, element, new GUIContent ("SubDynamicScene " + index));
+				EditorGUI.PropertyField (rect, element, new GUIContent ("Scene " + index));
 			};
 		}
 
@@ -86,32 +61,39 @@ namespace ICKX.Apron {
 
 			var guids = AssetDatabase.FindAssets ("t:SceneSetCatalog");
 
-			foreach (var guid in guids) {
-				var path = AssetDatabase.GUIDToAssetPath (guid);
+			catalogName = "";
+			isSceneSet = false;
+			sceneSetProperty = null;
+			sobjCatalog = null;
+
+			catalogPaths = new string[guids.Length + 1];
+			catalogNames = new string[guids.Length + 1];
+			currentCatalogIndex = guids.Length;
+
+			for (int i=0;i<guids.Length;i++) {
+				var path = AssetDatabase.GUIDToAssetPath (guids[i]);
 				catalog = AssetDatabase.LoadAssetAtPath<SceneSetCatalog> (path);
 				if (catalog == null) continue;
 
-				var sobj = new SerializedObject (catalog);
+				catalogPaths[i] = path;
+				catalogNames[i] = catalog.name;
 
-				if (ContainInCatalog (sobj, sceneAsset.name, out sceneSetMode, out sceneSetProperty)) {
+				var sobj = new SerializedObject (catalog);
+				if (ContainSceneInfoInCatalog (sobj, sceneAsset.name, out var sprop)) {
+					sceneInfoProperty = sprop;
+					currentCatalogIndex = i;
+					catalogName = System.IO.Path.GetFileNameWithoutExtension (path);
 					sobjCatalog = sobj;
-					catalogName = System.IO.Path.GetFileNameWithoutExtension(path);
-					if (sceneSetMode == SceneSetMode.RootScene) {
-						OnChangeSceneSetProperty ();
+					if (ContainSceneSetInCatalog (sobj, sceneAsset.name, out sceneSetProperty)) {
+						isSceneSet = true;
+						OnChangeSceneSetProperty (sobjCatalog);
 					}
-					if (sceneSetMode == SceneSetMode.Landscape) {
-						OnChangeLandscapeSceneSetProperty ();
-					}
-					return;
 				} else {
 					sobj.Dispose ();
 				}
 			}
-
-			catalogName = "";
-			sceneSetMode = SceneSetMode.None;
-			sceneSetProperty = null;
-			sobjCatalog = null;
+			catalogPaths[guids.Length] = "";
+			catalogNames[guids.Length] = "None";
 		}
 
 		private void OnDisable () {
@@ -123,7 +105,7 @@ namespace ICKX.Apron {
 		SerializedObject FindCatalogByName (string name) {
 			var guids = AssetDatabase.FindAssets (name + " t:SceneSetCatalog");
 
-			if(guids.Length > 0) {
+			if (guids.Length > 0) {
 				foreach (var guid in guids) {
 					var path = AssetDatabase.GUIDToAssetPath (guid);
 					if (System.IO.Path.GetFileNameWithoutExtension (path) != name) continue;
@@ -135,83 +117,135 @@ namespace ICKX.Apron {
 			return null;
 		}
 
-		bool ContainInCatalog (SerializedObject sobj, string sceneSetName, out SceneSetMode mode, out SerializedProperty sprop) {
-			var spropLandscapeSceneSet = sobj.FindProperty ("landscapeSceneSetList");
-			var spropSceneSetList = sobj.FindProperty ("sceneSetList");
+		bool ContainSceneInfoInCatalog (SerializedObject sobj, string sceneName, out SerializedProperty sprop) {
+			var spropSceneInfoList = sobj.FindProperty ("sceneInfoList");
 
-			for (int i = 0; i < spropLandscapeSceneSet.arraySize; i++) {
-				var element = spropLandscapeSceneSet.GetArrayElementAtIndex (i);
-				var spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
+			for (int i = 0; i < spropSceneInfoList.arraySize; i++) {
+				var element = spropSceneInfoList.GetArrayElementAtIndex (i);
+				var spopSceneName = element.FindPropertyRelative ("sceneName");
 
-				if (spopSceneSetName.stringValue == sceneSetName) {
-					mode = SceneSetMode.Landscape;
+				if (spopSceneName.stringValue == sceneName) {
 					sprop = element;
 					return true;
 				}
 			}
+			sprop = null;
+			return false;
+		}
+
+		bool ContainSceneSetInCatalog (SerializedObject sobj, string sceneSetName, out SerializedProperty sprop) {
+			var spropSceneSetList = sobj.FindProperty ("sceneSetList");
 
 			for (int i = 0; i < spropSceneSetList.arraySize; i++) {
 				var element = spropSceneSetList.GetArrayElementAtIndex (i);
 				var spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
 
 				if (spopSceneSetName.stringValue == sceneSetName) {
-					mode = SceneSetMode.RootScene;
 					sprop = element;
 					return true;
 				}
 			}
-			mode = SceneSetMode.None;
 			sprop = null;
 			return false;
 		}
 
-		SerializedProperty AddLandscapeSceneSet () {
-			if (sobjCatalog == null) return null;
+		SerializedProperty AddSceneInfo (SerializedObject sobj, SerializedProperty copy = null) {
+			if (sobj == null) return null;
 
-			var spropLandscapeSceneSet = sobjCatalog.FindProperty ("landscapeSceneSetList");
-			spropLandscapeSceneSet.InsertArrayElementAtIndex (spropLandscapeSceneSet.arraySize);
-			var element = spropLandscapeSceneSet.GetArrayElementAtIndex (spropLandscapeSceneSet.arraySize - 1);
-			var spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
-			spopSceneSetName.stringValue = sceneAsset.name;
+			var spropSceneInfoList = sobj.FindProperty ("sceneInfoList");
+
+			SerializedProperty element = null, spopSceneSetName = null;
+			for (int i = 0; i < spropSceneInfoList.arraySize; i++) {
+				var tempElement = spropSceneInfoList.GetArrayElementAtIndex (i);
+				spopSceneSetName = tempElement.FindPropertyRelative ("sceneName");
+				if (spopSceneSetName.stringValue == sceneAsset.name) {
+					element = tempElement;
+					break;
+				}
+			}
+
+			if (element == null) {
+				spropSceneInfoList.InsertArrayElementAtIndex (spropSceneInfoList.arraySize);
+				element = spropSceneInfoList.GetArrayElementAtIndex (spropSceneInfoList.arraySize - 1);
+				spopSceneSetName = element.FindPropertyRelative ("sceneName");
+				spopSceneSetName.stringValue = sceneAsset.name;
+			}
+
+			if(copy != null) {
+				element.FindPropertyRelative ("sceneName").stringValue = copy.FindPropertyRelative ("sceneName").stringValue;
+				element.FindPropertyRelative ("sceneType").boolValue = copy.FindPropertyRelative ("sceneType").boolValue;
+				element.FindPropertyRelative ("isBuild").boolValue = copy.FindPropertyRelative ("isBuild").boolValue;
+			} else {
+				var spopSceneInfo = element.FindPropertyRelative ("sceneName");
+				spopSceneInfo.stringValue = sceneAsset.name;
+			}
 			return element;
 		}
 
-		SerializedProperty AddSceneSet () {
-			if (sobjCatalog == null) return null;
+		SerializedProperty AddSceneSet (SerializedObject sobj, SerializedProperty copy = null) {
+			if (sobj == null) return null;
 
-			var spropLandscapeSceneSet = sobjCatalog.FindProperty ("sceneSetList");
-			spropLandscapeSceneSet.InsertArrayElementAtIndex (spropLandscapeSceneSet.arraySize);
-			var element = spropLandscapeSceneSet.GetArrayElementAtIndex (spropLandscapeSceneSet.arraySize - 1);
-			var spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
-			spopSceneSetName.stringValue = sceneAsset.name;
+			var spropSceneSetList = sobj.FindProperty ("sceneSetList");
+
+			SerializedProperty element = null, spopSceneSetName = null;
+			for (int i=0;i<spropSceneSetList.arraySize;i++) {
+				var tempElement = spropSceneSetList.GetArrayElementAtIndex (i);
+				spopSceneSetName = tempElement.FindPropertyRelative ("sceneSetName");
+				if(spopSceneSetName.stringValue == sceneAsset.name) {
+					element = tempElement;
+					break;
+				}
+			}
+
+			if (element == null) {
+				spropSceneSetList.InsertArrayElementAtIndex (spropSceneSetList.arraySize);
+				element = spropSceneSetList.GetArrayElementAtIndex (spropSceneSetList.arraySize - 1);
+				spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
+				spopSceneSetName.stringValue = sceneAsset.name;
+			}
+
 			var spropSceneNames = element.FindPropertyRelative ("sceneNames");
-			spropSceneNames.ClearArray ();
-			spropSceneNames.InsertArrayElementAtIndex (0);
-			spropSceneNames.GetArrayElementAtIndex (0).stringValue = sceneAsset.name;
 
+			if (copy != null) {
+				var copyNames = copy.FindPropertyRelative ("sceneNames");
+				spropSceneNames.ClearArray ();
+				for (int i=0;i< copyNames.arraySize;i++) {
+					spropSceneNames.InsertArrayElementAtIndex (i);
+					spropSceneNames.GetArrayElementAtIndex (i).stringValue = copyNames.GetArrayElementAtIndex(i).stringValue;
+				}
+			} else {
+				spropSceneNames.ClearArray ();
+				spropSceneNames.InsertArrayElementAtIndex (0);
+				spropSceneNames.GetArrayElementAtIndex (0).stringValue = sceneAsset.name;
+			}
 			return element;
 		}
 
-		void RemoveProperty () {
-			if (sobjCatalog == null) return;
+		void RemoveSceneInfoProperty (SerializedObject sobj) {
+			if (sobj == null) return;
 
-			var spropLandscapeSceneSet = sobjCatalog.FindProperty ("landscapeSceneSetList");
-			var spropSceneSetList = sobjCatalog.FindProperty ("sceneSetList");
+			var spropSceneInfoList = sobj.FindProperty ("sceneInfoList");
 
 			int index = 0;
-			while (index < spropLandscapeSceneSet.arraySize) {
+			while (index < spropSceneInfoList.arraySize) {
 
-				var element = spropLandscapeSceneSet.GetArrayElementAtIndex (index);
-				var spopSceneSetName = element.FindPropertyRelative ("sceneSetName");
+				var element = spropSceneInfoList.GetArrayElementAtIndex (index);
+				var spopSceneSetName = element.FindPropertyRelative ("sceneName");
 
 				if (spopSceneSetName.stringValue == sceneAsset.name) {
-					spropLandscapeSceneSet.DeleteArrayElementAtIndex (index);
+					spropSceneInfoList.DeleteArrayElementAtIndex (index);
 				} else {
 					index++;
 				}
 			}
+		}
 
-			index = 0;
+		void RemoveSceneSetProperty (SerializedObject sobj) {
+			if (sobj == null) return;
+
+			var spropSceneSetList = sobj.FindProperty ("sceneSetList");
+
+			int index = 0;
 			while (index < spropSceneSetList.arraySize) {
 
 				var element = spropSceneSetList.GetArrayElementAtIndex (index);
@@ -229,126 +263,118 @@ namespace ICKX.Apron {
 
 			GUI.enabled = true;
 
+			base.OnInspectorGUI ();
+
 			var tempSceneAsset = target as SceneAsset;
 
-			if(tempSceneAsset.name != sceneAsset.name) {
+			if (tempSceneAsset.name != sceneAsset.name) {
 				sceneAsset = tempSceneAsset;
 				OnUpdateSceneAsset ();
 			}
 
-			int tempMode = GUILayout.Toolbar ((int)sceneSetMode, modeToolBarNames);
+			int tempIndex = EditorGUILayout.Popup (new GUIContent ("Select Catalog"), currentCatalogIndex, catalogNames);
 
-			if (tempMode != (int)sceneSetMode) {
+			if(tempIndex != currentCatalogIndex && tempIndex != catalogNames.Length - 1) {
+				currentCatalogIndex = tempIndex;
+				var newSobjCatalog = FindCatalogByName (catalogNames[tempIndex]);
+				if (newSobjCatalog != null) {
+					newSobjCatalog.Update ();
+					sceneInfoProperty = AddSceneInfo (newSobjCatalog, sceneInfoProperty);
+					if (isSceneSet) {
+						sceneSetProperty = AddSceneSet (newSobjCatalog, sceneSetProperty);
+						OnChangeSceneSetProperty (newSobjCatalog);
+					}
+					newSobjCatalog.ApplyModifiedProperties ();
 
-				if (sobjCatalog != null) {
-					sobjCatalog.Update ();
-					RemoveProperty ();
-					sobjCatalog.ApplyModifiedProperties ();
+					if (sobjCatalog != null) {
+						sobjCatalog.Update ();
+						RemoveSceneInfoProperty (sobjCatalog);
+						RemoveSceneSetProperty (sobjCatalog);
+						sobjCatalog.ApplyModifiedProperties ();
+					}
+
+					sobjCatalog = newSobjCatalog;
+					OnUpdateSceneAsset ();
 				}
+				return;
+			}
 
-				if(string.IsNullOrEmpty(catalogName)) {
-					catalogName = SceneSetCatalog.DefaultCatalogName;
-				}
-				sobjCatalog = FindCatalogByName (catalogName);
-
-				if (sobjCatalog == null) {
-					Debug.LogWarning ($"catalogName={catalogName} ‚ª‘¶Ý‚µ‚Ä‚¢‚Ü‚¹‚ñ");
-					return;
-				}
-
-				sceneSetMode = (SceneSetMode)tempMode;
+			if (sobjCatalog != null) {
 
 				sobjCatalog.Update ();
-				if (sceneSetMode == SceneSetMode.RootScene) {
-					sceneSetProperty = AddSceneSet ();
-					OnChangeSceneSetProperty ();
-				}
-				if (sceneSetMode == SceneSetMode.Landscape) {
-					sceneSetProperty = AddLandscapeSceneSet ();
-					OnChangeLandscapeSceneSetProperty ();
-				}
-				sobjCatalog.ApplyModifiedProperties ();
-			}
 
-			if (isRootScene) {
-				string tempCatalogName = EditorGUILayout.TextField ("catalogName", catalogName);
+				//SceneInfo 
+				using (var scopeSceneInfo = new EditorGUILayout.VerticalScope ("box")) {
+					EditorGUILayout.LabelField ("Scene Info");
+					EditorGUI.BeginChangeCheck ();
 
-				if (tempCatalogName != catalogName) {
-					var newSobjCatalog = FindCatalogByName (tempCatalogName);
-					if (newSobjCatalog != null) {
-						sobjCatalog.Update ();
-						RemoveProperty ();
-						sobjCatalog.ApplyModifiedProperties ();
-						sobjCatalog = newSobjCatalog;
+					EditorGUI.indentLevel++;
+					var propSceneType = sceneInfoProperty.FindPropertyRelative ("sceneType");
+					EditorGUILayout.PropertyField (propSceneType);
+					var propIsBuild = sceneInfoProperty.FindPropertyRelative ("isBuild");
+					EditorGUILayout.PropertyField (propIsBuild);
+					EditorGUI.indentLevel--;
 
-						sobjCatalog.Update ();
-						if (sceneSetMode == SceneSetMode.RootScene) {
-							sceneSetProperty = AddSceneSet ();
-							OnChangeSceneSetProperty ();
-						}
-						if (sceneSetMode == SceneSetMode.Landscape) {
-							sceneSetProperty = AddLandscapeSceneSet ();
-							OnChangeLandscapeSceneSetProperty ();
-						}
+					if (EditorGUI.EndChangeCheck()) {
 						sobjCatalog.ApplyModifiedProperties ();
 					}
-					catalogName = tempCatalogName;
+
+					if (GUILayout.Button ("Update Build Settings")) {
+						sobjCatalog.Update ();
+						catalog = sobjCatalog.targetObject as SceneSetCatalog;
+						catalog.UpdateBuildSettings ();
+					}
 				}
 
-				if (sobjCatalog != null) {
+				EditorGUILayout.Space ();
 
-					sobjCatalog.Update ();
+				//SceneSet
+				using (var scopeSceneSet = new EditorGUILayout.VerticalScope ("box")) {
+					EditorGUILayout.LabelField ("Scene Set");
 
-					EditorGUILayout.PropertyField (sceneSetProperty.FindPropertyRelative ("sceneSetName"));
+					if (isSceneSet && sobjCatalog != null) {
 
-					if (sceneSetMode == SceneSetMode.RootScene) {
-						var propIsBuildSceneSet = sceneSetProperty.FindPropertyRelative ("isBuildSceneSet");
-						var tempToggle = EditorGUILayout.Toggle ("Is Build SceneSet", propIsBuildSceneSet.boolValue);
-						EditorGUILayout.PropertyField (sceneSetProperty.FindPropertyRelative ("landscapeSceneSetName"), true);
-						
-						//EditorGUILayout.PropertyField (sceneSetProperty.FindPropertyRelative ("sceneNames"), true);
-						if(sceneNameList != null) sceneNameList.DoLayoutList ();
+						EditorGUI.BeginChangeCheck ();
 
-						if (propIsBuildSceneSet.boolValue != tempToggle) {
-							propIsBuildSceneSet.boolValue = tempToggle;
-
-							EditorApplication.delayCall += () => {
-								catalog.UpdateBuildSettings ();
-							};
+						EditorGUI.indentLevel++;
+						EditorGUILayout.PropertyField (sceneSetProperty.FindPropertyRelative ("sceneSetName"));
+						sceneNameList.DoLayoutList ();
+						EditorGUI.indentLevel--;
+						if (EditorGUI.EndChangeCheck ()) {
+							sobjCatalog.ApplyModifiedProperties ();
 						}
-					}
-					if (sceneSetMode == SceneSetMode.Landscape) {
-						subStaticSceneNameList.DoLayoutList ();
-						subDynamicSceneNameList.DoLayoutList ();
-					}
 
-					sobjCatalog.ApplyModifiedProperties ();
+						EditorGUILayout.Space ();
 
-					EditorGUILayout.Space ();
+						using (var scopeButton = new EditorGUILayout.HorizontalScope()) {
+							if (GUILayout.Button ("Open Scene")) {
+								var settingsObject = sobjCatalog.targetObject as SceneSetCatalog;
 
-					if (GUILayout.Button ("Open Scene")) {
-						var settingsObject = sobjCatalog.targetObject as SceneSetCatalog;
+								SceneSet sceneSet = null;
+								if (settingsObject.sceneSetTable.TryGetValue (sceneAsset.name, out sceneSet)) {
+									sceneSet.OpenSceneInEditor ();
+								}
+							}
 
+							GUILayout.Space (50);
 
-						if (sceneSetMode == SceneSetMode.None) {
-							string path = AssetDatabase.GetAssetPath (sceneAsset);
-							EditorSceneManager.OpenScene (path, OpenSceneMode.Single);
-						}
-						if (sceneSetMode == SceneSetMode.RootScene) {
-							SceneSet sceneSet = null;
-							if (settingsObject.sceneSetTable.TryGetValue (sceneAsset.name, out sceneSet)) {
-								sceneSet.OpenSceneInEditor ();
+							if (GUILayout.Button ("Remove", GUILayout.ExpandWidth(false))) {
+								isSceneSet = false;
+								RemoveSceneSetProperty (sobjCatalog);
+								sobjCatalog.ApplyModifiedProperties ();
 							}
 						}
-						if (sceneSetMode == SceneSetMode.Landscape) {
-							LandscapeSceneSet sceneSet = null;
-							if (settingsObject.landscapeSceneSetTable.TryGetValue (sceneAsset.name, out sceneSet)) {
-								sceneSet.OpenSceneInEditor ();
-							}
+					} else {
+						if (GUILayout.Button ("Create SceneSet")) {
+							isSceneSet = true;
+							sceneSetProperty = AddSceneSet (sobjCatalog);
+							OnChangeSceneSetProperty (sobjCatalog);
+							sobjCatalog.ApplyModifiedProperties ();
 						}
 					}
 				}
 			}
+
 
 			GUI.enabled = false;
 		}

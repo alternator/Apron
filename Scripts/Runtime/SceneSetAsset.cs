@@ -9,29 +9,27 @@ using UnityEditor.SceneManagement;
 
 namespace ICKX.Apron {
 
-	public abstract class SceneSetBase {
+	[System.Serializable]
+	public class SceneInfo {
+
+		public enum SceneType {
+			Dynamic,
+			Static,
+			Permanent,
+		}
 
 		[Disable]
-		public string sceneSetName;
-
-//		public string catalogPath = "SceneSetCatalog";
-
+		public string sceneName;
+		public SceneType sceneType;
 #if UNITY_EDITOR
-		public abstract void OpenSceneInEditor ();
+		public bool isBuild;
 #endif
-		
 	}
 
 	[System.Serializable]
-	public class SceneSet : SceneSetBase{
-#if UNITY_EDITOR
-		public bool isBuildSceneSet;
-#endif
-
-#if UNITY_EDITOR
-		[ObjectToStringField (typeof (SceneAsset))]
-#endif
-		public string landscapeSceneSetName;
+	public class SceneSet{
+		[Disable]
+		public string sceneSetName;
 
 #if UNITY_EDITOR
 		[ObjectToStringField (typeof (SceneAsset))]
@@ -39,16 +37,9 @@ namespace ICKX.Apron {
 		public string[] sceneNames;
 		
 #if UNITY_EDITOR
-		public override void OpenSceneInEditor () {
+		public void OpenSceneInEditor () {
 
 			var mode = OpenSceneMode.Single;
-
-			if(!string.IsNullOrEmpty(landscapeSceneSetName)) {
-				var setting = SceneSetCatalog.FindDefaultCatalog ();
-				var landscapeSceneSet = setting.landscapeSceneSetTable[landscapeSceneSetName];
-				landscapeSceneSet.OpenSceneInEditor ();
-				mode = OpenSceneMode.Additive;
-			}
 
 			foreach (var sceneName in sceneNames) {
 				var subScenePath = SceneSetCatalog.FindSceneAssetPath (sceneName);
