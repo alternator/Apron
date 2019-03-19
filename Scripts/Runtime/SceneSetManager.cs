@@ -22,6 +22,7 @@ namespace ICKX.Apron {
 		public static IReadOnlyList<SceneSetCatalog> catalogs { get { return m_catalogs; } }
 
 		public static void Initialize () {
+			if (m_catalogs != null && m_catalogs.Count != 0) return;
 			m_catalogs = new List<SceneSetCatalog> ();
 			m_catalogs.Add (SceneSetCatalog.FindDefaultCatalog ());
 		}
@@ -267,6 +268,12 @@ namespace ICKX.Apron {
 				}
 				rate /= asyncOperations.Count;
 				return rate;
+			}
+		}
+
+		public bool readyForActivation {
+			get {
+				return !keepWaiting;
 			}
 		}
 
