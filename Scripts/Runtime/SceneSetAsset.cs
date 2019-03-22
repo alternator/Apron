@@ -21,9 +21,7 @@ namespace ICKX.Apron {
 		[Disable]
 		public string sceneName;
 		public SceneType sceneType;
-#if UNITY_EDITOR
 		public bool isBuild;
-#endif
 	}
 
 	[System.Serializable]
