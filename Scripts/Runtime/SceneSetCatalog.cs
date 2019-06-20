@@ -9,7 +9,7 @@ using UnityEditor;
 
 namespace ICKX.Apron {
 
-	[CreateAssetMenu (menuName = "ICKX/SceneSetCatalog")]
+	[CreateAssetMenu (menuName = "Tools/ICKX/SceneSetCatalog")]
 	public class SceneSetCatalog : ScriptableObject, ISerializationCallbackReceiver {
 
 		public const string DefaultCatalogName = "MainSceneSetCatalog";
@@ -51,7 +51,7 @@ namespace ICKX.Apron {
 			if (Application.isPlaying) return;
 
 			if(FindDefaultCatalog() == null) {
-				if(!EditorPrefs.GetBool("ICKX/Apron/IgnoreCreateDefaultCatalogMessage", false)) {
+				if(!EditorPrefs.GetBool("Tools/ICKX/Apron/IgnoreCreateDefaultCatalogMessage", false)) {
 					string title = "SceneSetCatalogの作成";
 					string message = 
 						"SceneSetManagerを利用するためには、デフォルトのSceneSetCatalogを作成する必要があります。\n" +
@@ -69,7 +69,7 @@ namespace ICKX.Apron {
 						case 1:
 							break;
 						case 2:
-							EditorPrefs.SetBool ("ICKX/Apron/IgnoreCreateDefaultCatalogMessage", true);
+							EditorPrefs.SetBool ("Tools/ICKX/Apron/IgnoreCreateDefaultCatalogMessage", true);
 							break;
 					}
 				}
